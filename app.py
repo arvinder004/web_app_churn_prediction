@@ -4,11 +4,12 @@ import joblib
 import pandas as pd
 import numpy as np
 import streamlit as st
+from typing import Optional
 from datetime import datetime
 
 
 # Utilities: Artifact Loading
-def get_latest_file(pattern: str) -> str | None:
+def get_latest_file(pattern: str) -> Optional[str]:
     matches = glob.glob(pattern)
     if not matches:
         return None
@@ -98,6 +99,45 @@ with st.sidebar:
         st.error("Could not load a trained model. Please run the training notebook to export artifacts.")
     if preprocessor is None:
         st.warning("Preprocessor not found. If the model is a full pipeline, predictions may still work.")
+
+    # Diagnostics (optional): helps debug missing artifacts on Render/Cloud
+    with st.expander("Diagnostics: artifact discovery", expanded=False):
+        try:
+            cwd = os.getcwd()
+            st.text(f"CWD: {cwd}")
+        except Exception as e:
+            st.text(f"CWD: <error: {e}>")
+
+        dep_dir = "deployment"
+        models_dir = "models"
+
+        def safe_listdir(path: str):
+            if os.path.isdir(path):
+                try:
+                    return os.listdir(path)
+                except Exception as e:
+                    return [f"<error listing {path}: {e}>"]
+            return ["<missing>"]
+
+        st.text(f"deployment/: {safe_listdir(dep_dir)}")
+        st.text(f"models/: {safe_listdir(models_dir)}")
+
+        dep_metadata = glob.glob(os.path.join(dep_dir, "model_metadata_*.pkl"))
+        dep_pre = glob.glob(os.path.join(dep_dir, "preprocessor_*.pkl"))
+        dep_model = glob.glob(os.path.join(dep_dir, "best_model_*.pkl"))
+
+        st.text(f"deployment model_metadata_*: {dep_metadata}")
+        st.text(f"deployment preprocessor_*: {dep_pre}")
+        st.text(f"deployment best_model_*: {dep_model}")
+
+        mod_best = glob.glob(os.path.join(models_dir, "best_*.pkl"))
+        mod_pre_candidates = [
+            os.path.join(models_dir, "enhanced_preprocessor.pkl"),
+            os.path.join(models_dir, "improved_preprocessor.pkl"),
+        ]
+        mod_pre_exist = [p for p in mod_pre_candidates if os.path.exists(p)]
+        st.text(f"models best_*: {mod_best}")
+        st.text(f"models preprocessor candidates (exist): {mod_pre_exist}")
 
 st.subheader("Input Features")
 
