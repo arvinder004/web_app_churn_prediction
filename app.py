@@ -4,8 +4,8 @@ import joblib
 import pandas as pd
 import numpy as np
 import streamlit as st
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 
 
 # Utilities: Artifact Loading
@@ -17,14 +17,9 @@ def get_latest_file(pattern: str) -> Optional[str]:
     return matches[0]
 
 
-def load_artifacts(
-    explicit_model_path: Optional[str] = None,
-    explicit_preprocessor_path: Optional[str] = None,
-    explicit_metadata_path: Optional[str] = None,
-):
-    """Load best model, preprocessor, and optional metadata.
-    Priority: explicit paths (env/UI) → deployment/ → models/
-    Returns (model_or_pipeline, preprocessor, metadata_dict_or_none, errors_dict)
+def load_artifacts():
+    """Load best model, preprocessor, and optional metadata from deployment/ or models/.
+    Returns (model_or_pipeline, preprocessor, metadata_dict_or_none)
     """
 
     deployment_dir = "deployment"
@@ -37,68 +32,35 @@ def load_artifacts(
     metadata = None
     model = None
     preprocessor = None
-    errors = {}
 
-    # 1) Try explicit paths first
-    if explicit_metadata_path:
-        try:
-            metadata = joblib.load(explicit_metadata_path)
-        except Exception as e:
-            metadata = None
-            errors["metadata_error"] = f"{type(e).__name__}: {e}"
-
-    if metadata is None and metadata_path:
+    if metadata_path:
         try:
             metadata = joblib.load(metadata_path)
-        except Exception as e:
+        except Exception:
             metadata = None
-            errors["metadata_error"] = f"{type(e).__name__}: {e}"
 
-    if explicit_model_path:
-        try:
-            model = joblib.load(explicit_model_path)
-        except Exception as e:
-            model = None
-            errors["model_error"] = f"{type(e).__name__}: {e}"
-
-    if model is None and best_model_path:
+    if best_model_path:
         try:
             model = joblib.load(best_model_path)
-        except Exception as e:
+        except Exception:
             model = None
-            errors["model_error"] = f"{type(e).__name__}: {e}"
 
-    if explicit_preprocessor_path:
-        try:
-            preprocessor = joblib.load(explicit_preprocessor_path)
-        except Exception as e:
-            preprocessor = None
-            errors["preprocessor_error"] = f"{type(e).__name__}: {e}"
-
-    if preprocessor is None and preprocessor_path:
+    if preprocessor_path:
         try:
             preprocessor = joblib.load(preprocessor_path)
-        except Exception as e:
+        except Exception:
             preprocessor = None
-            errors["preprocessor_error"] = f"{type(e).__name__}: {e}"
 
     if model is None:
-        try:
-            fallback = get_latest_file(os.path.join(models_dir, "best_*.pkl"))
-            model = joblib.load(fallback) if fallback else None
-        except Exception as e:
-            errors["model_fallback_error"] = f"{type(e).__name__}: {e}"
+        model = joblib.load(get_latest_file(os.path.join(models_dir, "best_*.pkl"))) if get_latest_file(os.path.join(models_dir, "best_*.pkl")) else None
 
     if preprocessor is None:
-        try:
-            pre_path = get_latest_file(os.path.join(models_dir, "enhanced_preprocessor.pkl"))
-            if pre_path is None:
-                pre_path = get_latest_file(os.path.join(models_dir, "improved_preprocessor.pkl"))
-            preprocessor = joblib.load(pre_path) if pre_path else None
-        except Exception as e:
-            errors["preprocessor_fallback_error"] = f"{type(e).__name__}: {e}"
+        pre_path = get_latest_file(os.path.join(models_dir, "enhanced_preprocessor.pkl"))
+        if pre_path is None:
+            pre_path = get_latest_file(os.path.join(models_dir, "improved_preprocessor.pkl"))
+        preprocessor = joblib.load(pre_path) if pre_path else None
 
-    return model, preprocessor, metadata, errors
+    return model, preprocessor, metadata
 
 
 # Feature Engineering (must match training)
@@ -130,86 +92,13 @@ st.write("Enter customer details to predict churn probability. The app mirrors t
 
 with st.sidebar:
     st.header("Model Artifacts")
-    # Read env overrides
-    env_model = os.getenv("MODEL_PATH")
-    env_pre = os.getenv("PREPROCESSOR_PATH")
-    env_meta = os.getenv("METADATA_PATH")
-
-    # Suggested defaults from deployment/
-    suggested_model = get_latest_file(os.path.join("deployment", "best_model_*.pkl"))
-    suggested_pre = get_latest_file(os.path.join("deployment", "preprocessor_*.pkl"))
-    suggested_meta = get_latest_file(os.path.join("deployment", "model_metadata_*.pkl"))
-
-    st.caption("Optional: override artifact paths (leave blank to auto-discover)")
-    ui_model = st.text_input("Model path", value=env_model or (suggested_model or ""))
-    ui_pre = st.text_input("Preprocessor path", value=env_pre or (suggested_pre or ""))
-    ui_meta = st.text_input("Metadata path", value=env_meta or (suggested_meta or ""))
-
-    # Normalize empty strings to None
-    ui_model = ui_model or None
-    ui_pre = ui_pre or None
-    ui_meta = ui_meta or None
-
-    model, preprocessor, metadata, load_errors = load_artifacts(
-        explicit_model_path=ui_model,
-        explicit_preprocessor_path=ui_pre,
-        explicit_metadata_path=ui_meta,
-    )
+    model, preprocessor, metadata = load_artifacts()
     if metadata:
         st.success(f"Loaded metadata from {metadata.get('timestamp', 'N/A')}")
     if model is None:
         st.error("Could not load a trained model. Please run the training notebook to export artifacts.")
     if preprocessor is None:
         st.warning("Preprocessor not found. If the model is a full pipeline, predictions may still work.")
-
-    # Diagnostics (optional): helps debug missing artifacts on Render/Cloud
-    with st.expander("Diagnostics: artifact discovery", expanded=False):
-        try:
-            cwd = os.getcwd()
-            st.text(f"CWD: {cwd}")
-        except Exception as e:
-            st.text(f"CWD: <error: {e}>")
-
-        dep_dir = "deployment"
-        models_dir = "models"
-
-        def safe_listdir(path: str):
-            if os.path.isdir(path):
-                try:
-                    return os.listdir(path)
-                except Exception as e:
-                    return [f"<error listing {path}: {e}>"]
-            return ["<missing>"]
-
-        st.text(f"deployment/: {safe_listdir(dep_dir)}")
-        st.text(f"models/: {safe_listdir(models_dir)}")
-
-        dep_metadata = glob.glob(os.path.join(dep_dir, "model_metadata_*.pkl"))
-        dep_pre = glob.glob(os.path.join(dep_dir, "preprocessor_*.pkl"))
-        dep_model = glob.glob(os.path.join(dep_dir, "best_model_*.pkl"))
-
-        st.text(f"deployment model_metadata_*: {dep_metadata}")
-        st.text(f"deployment preprocessor_*: {dep_pre}")
-        st.text(f"deployment best_model_*: {dep_model}")
-
-        mod_best = glob.glob(os.path.join(models_dir, "best_*.pkl"))
-        mod_pre_candidates = [
-            os.path.join(models_dir, "enhanced_preprocessor.pkl"),
-            os.path.join(models_dir, "improved_preprocessor.pkl"),
-        ]
-        mod_pre_exist = [p for p in mod_pre_candidates if os.path.exists(p)]
-        st.text(f"models best_*: {mod_best}")
-        st.text(f"models preprocessor candidates (exist): {mod_pre_exist}")
-
-        st.markdown("**Selected paths (env/UI)**")
-        st.text(f"MODEL_PATH: {ui_model}")
-        st.text(f"PREPROCESSOR_PATH: {ui_pre}")
-        st.text(f"METADATA_PATH: {ui_meta}")
-
-        if load_errors:
-            st.markdown("**Load errors**")
-            for k, v in load_errors.items():
-                st.text(f"{k}: {v}")
 
 st.subheader("Input Features")
 
