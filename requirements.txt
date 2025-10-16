@@ -35,3 +35,7 @@ tornado==6.5.2
 typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
+
+# ML runtime deps for model unpickling
+scipy==1.14.1
+scikit-learn==1.6.1
