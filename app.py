@@ -187,8 +187,3 @@ if st.button("Predict Churn"):
 
 st.markdown("---")
 st.caption("Model artifacts are loaded from 'deployment/' (preferred) or 'models/'. Ensure the training notebook has exported the latest artifacts.")
-
-# Add this at the end of the file for Render deployment
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    st.run(port=port)
