@@ -161,7 +161,6 @@ if st.button("Predict Churn"):
         else:
             raise AttributeError("Model does not have predict_proba method")
     except Exception as e:
-        # st.error(f"Error during prediction with full pipeline: {e}")
         if preprocessor is None:
             st.error("No preprocessor available and model is not a pipeline. Cannot proceed.")
             st.stop()
