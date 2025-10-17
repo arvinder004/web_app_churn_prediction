@@ -1,3 +1,4 @@
+
 import os
 import glob
 import joblib
@@ -7,6 +8,18 @@ import streamlit as st
 from datetime import datetime
 from typing import Optional
 
+# Add these lines at the beginning to debug library versions
+import sklearn
+import pandas
+import numpy
+import streamlit
+import joblib
+
+print(f"scikit-learn version: {sklearn.__version__}")
+print(f"pandas version: {pandas.__version__}")
+print(f"numpy version: {numpy.__version__}")
+print(f"streamlit version: {streamlit.__version__}")
+print(f"joblib version: {joblib.__version__}")
 
 # Utilities: Artifact Loading
 def get_latest_file(pattern: str) -> Optional[str]:
@@ -16,12 +29,10 @@ def get_latest_file(pattern: str) -> Optional[str]:
     matches.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return matches[0]
 
-
 def load_artifacts():
     """Load best model, preprocessor, and optional metadata from deployment/ or models/.
     Returns (model_or_pipeline, preprocessor, metadata_dict_or_none)
     """
-
     deployment_dir = "deployment"
     models_dir = "models"
 
@@ -36,32 +47,43 @@ def load_artifacts():
     if metadata_path:
         try:
             metadata = joblib.load(metadata_path)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading metadata: {e}")
             metadata = None
 
     if best_model_path:
         try:
             model = joblib.load(best_model_path)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading model: {e}")
             model = None
 
     if preprocessor_path:
         try:
             preprocessor = joblib.load(preprocessor_path)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading preprocessor: {e}")
             preprocessor = None
 
     if model is None:
-        model = joblib.load(get_latest_file(os.path.join(models_dir, "best_*.pkl"))) if get_latest_file(os.path.join(models_dir, "best_*.pkl")) else None
+        model_path = get_latest_file(os.path.join(models_dir, "best_*.pkl"))
+        if model_path:
+            try:
+                model = joblib.load(model_path)
+            except Exception as e:
+                print(f"Error loading model from models directory: {e}")
 
     if preprocessor is None:
         pre_path = get_latest_file(os.path.join(models_dir, "enhanced_preprocessor.pkl"))
         if pre_path is None:
             pre_path = get_latest_file(os.path.join(models_dir, "improved_preprocessor.pkl"))
-        preprocessor = joblib.load(pre_path) if pre_path else None
+        if pre_path:
+            try:
+                preprocessor = joblib.load(pre_path)
+            except Exception as e:
+                print(f"Error loading preprocessor from models directory: {e}")
 
     return model, preprocessor, metadata
-
 
 # Feature Engineering (must match training)
 def create_advanced_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -115,6 +137,7 @@ with col2:
 
 if st.button("Predict Churn"):
     if model is None:
+        st.error("Model not loaded. Cannot make predictions.")
         st.stop()
 
     input_df = pd.DataFrame([
@@ -136,18 +159,23 @@ if st.button("Predict Churn"):
             proba = model.predict_proba(input_df_adv)[0, 1]
             pred = int(proba >= 0.5)
         else:
-            raise AttributeError
-    except Exception:
+            raise AttributeError("Model does not have predict_proba method")
+    except Exception as e:
+        st.error(f"Error during prediction with full pipeline: {e}")
         if preprocessor is None:
             st.error("No preprocessor available and model is not a pipeline. Cannot proceed.")
             st.stop()
-        X_trans = preprocessor.transform(input_df_adv)
-        if hasattr(model, "predict_proba"):
-            proba = model.predict_proba(X_trans)[0, 1]
-            pred = int(proba >= 0.5)
-        else:
-            pred = int(model.predict(X_trans)[0])
-            proba = float(pred)
+        try:
+            X_trans = preprocessor.transform(input_df_adv)
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(X_trans)[0, 1]
+                pred = int(proba >= 0.5)
+            else:
+                pred = int(model.predict(X_trans)[0])
+                proba = float(pred)
+        except Exception as e:
+            st.error(f"Error during prediction with separate preprocessor: {e}")
+            st.stop()
 
     st.markdown("---")
     st.subheader("Prediction")
@@ -159,3 +187,8 @@ if st.button("Predict Churn"):
 
 st.markdown("---")
 st.caption("Model artifacts are loaded from 'deployment/' (preferred) or 'models/'. Ensure the training notebook has exported the latest artifacts.")
+
+# Add this at the end of the file for Render deployment
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    st.run(port=port)
